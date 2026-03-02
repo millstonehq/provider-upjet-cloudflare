@@ -1,0 +1,34 @@
+Crossplane Provider Cloudflare has been installed!
+
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+Installed Resources:
+  - Provider: {{ include "provider-cloudflare.fullname" . }}
+  - DeploymentRuntimeConfig: {{ include "provider-cloudflare.runtimeConfigName" . }}
+  - ProviderConfig: {{ include "provider-cloudflare.providerConfigName" . }}
+{{- if .Values.secret.create }}
+  - Secret: {{ include "provider-cloudflare.secretName" . }} (namespace: {{ .Values.secret.namespace }})
+{{- end }}
+
+Verify Installation:
+
+1. Check Provider status:
+   kubectl get providers {{ include "provider-cloudflare.fullname" . }}
+
+2. Check Provider pod:
+   kubectl get pods -n {{ .Values.secret.namespace }} -l pkg.crossplane.io/provider={{ include "provider-cloudflare.fullname" . }}
+
+3. View Provider logs:
+   kubectl logs -n {{ .Values.secret.namespace }} -l pkg.crossplane.io/provider={{ include "provider-cloudflare.fullname" . }} --tail=50
+
+4. Verify CRDs are installed:
+   kubectl get crds | grep cloudflare
+
+5. Check ProviderConfig:
+   kubectl get providerconfig {{ include "provider-cloudflare.providerConfigName" . }} -o yaml
+
+For issues and support:
+  https://github.com/millstonehq/provider-upjet-cloudflare/issues

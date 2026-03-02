@@ -1,0 +1,59 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: {{ include "provider-cloudflare.fullname" . }}
+  labels:
+    {{- include "provider-cloudflare.labels" . | nindent 4 }}
+  annotations:
+    {{- include "provider-cloudflare.annotations" (dict "root" . "syncWave" .Values.syncWave.provider) | nindent 4 }}
+spec:
+  package: {{ include "provider-cloudflare.image" . }}
+  {{- with .Values.provider.package.pullPolicy }}
+  packagePullPolicy: {{ . }}
+  {{- end }}
+  runtimeConfigRef:
+    name: {{ include "provider-cloudflare.runtimeConfigName" . }}
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: {{ include "provider-cloudflare.runtimeConfigName" . }}
+  labels:
+    {{- include "provider-cloudflare.labels" . | nindent 4 }}
+  annotations:
+    {{- include "provider-cloudflare.annotations" (dict "root" . "syncWave" .Values.syncWave.provider) | nindent 4 }}
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          {{- with .Values.provider.runtimeConfig.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: package-runtime
+              {{- with .Values.provider.runtimeConfig.args }}
+              args:
+                {{- if .enableManagementPolicies }}
+                - --enable-management-policies
+                {{- end }}
+                {{- if .debug }}
+                - --debug
+                {{- end }}
+                {{- if .poll }}
+                - --poll={{ .poll }}
+                {{- end }}
+                {{- if .maxReconcileRate }}
+                - --max-reconcile-rate={{ .maxReconcileRate }}
+                {{- end }}
+              {{- end }}
+              {{- with .Values.provider.runtimeConfig.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .Values.provider.runtimeConfig.securityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}

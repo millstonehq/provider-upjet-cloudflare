@@ -1,0 +1,52 @@
+name: Build provider-upjet-cloudflare
+description: Build and test provider-upjet-cloudflare using Earthly
+inputs:
+  earthly-target:
+    description: 'Earthly target to build (e.g., +test-all, +push)'
+    required: false
+    default: '+test-all'
+  push:
+    description: 'Whether to push images (adds --push flag)'
+    required: false
+    default: 'false'
+  working-directory:
+    description: 'Directory containing the Earthfile (defaults to providers/provider-upjet-cloudflare in mill, . in FOSS)'
+    required: false
+    default: '.'
+  github-token:
+    description: 'GitHub token for authenticating to GHCR'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Set up QEMU for multi-platform builds
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64
+
+    - name: Download Earthly
+      shell: bash
+      run: |
+        wget https://github.com/earthly/earthly/releases/latest/download/earthly-linux-amd64 -O /usr/local/bin/earthly
+        chmod +x /usr/local/bin/earthly
+        earthly --version
+
+    - name: Build with Earthly
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FORCE_COLOR: 1
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PUSH_FLAG=""
+        CACHE_FLAGS="--remote-cache=ghcr.io/millstonehq/cache:provider-upjet-cloudflare --max-remote-cache"
+
+        if [ "${{ inputs.push }}" == "true" ]; then
+          PUSH_FLAG="--push"
+        fi
+
+        earthly --ci -P --secret GITHUB_TOKEN $PUSH_FLAG $CACHE_FLAGS ${{ inputs.earthly-target }}

@@ -1,0 +1,14 @@
+apiVersion: dns.cloudflare.millstone.tech/v1alpha1
+kind: Record
+metadata:
+  name: example-record
+spec:
+  forProvider:
+    zoneId: "your-zone-id"
+    name: "example"
+    content: "93.184.216.34"
+    type: "A"
+    ttl: 300
+    proxied: false
+  providerConfigRef:
+    name: default
