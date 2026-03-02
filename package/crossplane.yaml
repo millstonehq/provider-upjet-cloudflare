@@ -50,7 +50,7 @@ spec:
   crossplane:
     version: ">=v1.14.0-0"
   controller:
-    image: ctlptl-registry:5000/provider-cloudflare-controller:latest
+    image: ghcr.io/millstonehq/provider-cloudflare:latest
     permissionRequests:
     - apiGroups:
       - cloudflare.millstone.tech

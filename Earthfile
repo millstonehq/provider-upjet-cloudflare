@@ -152,85 +152,86 @@ image:
     ENTRYPOINT ["/usr/local/bin/provider"]
 
     ARG VERSION=v0.1.0
-    # Save image for each platform
-    SAVE IMAGE ghcr.io/millstonehq/provider-cloudflare:${VERSION}
-    SAVE IMAGE ghcr.io/millstonehq/provider-cloudflare:latest
-
-controller-tarball:
-    # Build controller tarball for ARM64 using cross-compilation (no QEMU!)
-    # Builds natively on amd64, cross-compiles Go binary for arm64
-    FROM alpine:latest
-    RUN apk add docker-cli
-
-    # Build ARM64 image using cross-compilation (IMAGE_OS/IMAGE_ARCH instead of --platform)
-    BUILD +image --IMAGE_OS=linux --IMAGE_ARCH=arm64
-
-    # Load the ARM64 image and save it as tarball
-    WITH DOCKER --load=ghcr.io/millstonehq/provider-cloudflare:latest=(+image --IMAGE_OS=linux --IMAGE_ARCH=arm64)
-        RUN docker save ghcr.io/millstonehq/provider-cloudflare:latest -o /tmp/controller.tar
-    END
-
-    SAVE ARTIFACT /tmp/controller.tar controller.tar
+    # Save arch-specific images (TARGETARCH is amd64 or arm64)
+    # These will be combined into multi-arch manifest by +push-images
+    SAVE IMAGE --push ghcr.io/millstonehq/provider-cloudflare:${VERSION}-${TARGETARCH}
+    SAVE IMAGE --push ghcr.io/millstonehq/provider-cloudflare:latest-${TARGETARCH}
 
 push-images:
-    # Push multi-arch controller images to GHCR
+    # Build and push multi-arch controller images to GHCR
     # Run with: earthly --push +push-images
-    # Note: Requires docker login to ghcr.io (workflow does this)
     ARG VERSION=v0.1.0
-    FROM alpine:latest
 
-    RUN apk add docker-cli
-
-    # Build and push both amd64 and arm64 images
+    # Build both arch images (SAVE IMAGE --push in +image target handles pushing)
     BUILD --platform=linux/amd64 --platform=linux/arm64 +image --VERSION=$VERSION
 
-    # Create and push multi-arch manifest
-    RUN docker buildx imagetools create -t ghcr.io/millstonehq/provider-cloudflare:${VERSION} \
-        -t ghcr.io/millstonehq/provider-cloudflare:latest \
-        ghcr.io/millstonehq/provider-cloudflare:${VERSION}
+    # Create completion marker for dependency chain
+    FROM +builder-base
+    RUN echo "Images pushed at $(date)" > /tmp/push-complete
+    SAVE ARTIFACT /tmp/push-complete push-complete
 
-push:
-    # Push xpkg package with embedded ARM64 controller runtime to GHCR
-    # Uses crossplane CLI to properly push OCI artifacts with embedded images
-    # Run with: earthly --push +push --GITHUB_TOKEN=<token>
+create-manifest:
+    # Create multi-arch manifest from pushed arch-specific images
+    # Must be called AFTER +push-images has pushed both architectures
+    ARG VERSION=v0.1.0
+    ARG GITHUB_USER=millstonehq
     FROM +builder-base
 
-    ARG VERSION=v0.1.0
-    ARG IMAGE_NAME=ghcr.io/millstonehq/provider-cloudflare:latest
-    ARG GITHUB_USER=millstonehq
+    # Wait for push-images to complete by depending on its artifact
+    COPY +push-images/push-complete /tmp/push-complete
 
-    COPY +package-build/package.xpkg /tmp/provider-cloudflare-package.xpkg
-
-    # Use crossplane CLI to push xpkg with embedded runtime artifacts
     USER root
-    RUN apk add docker-cli
+    RUN apk add docker-cli docker-cli-buildx
 
-    # Authenticate to GHCR using GitHub token passed as secret
+    # Authenticate to GHCR
     RUN --secret GITHUB_TOKEN \
         echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
 
-    # Push as root (docker credentials are in /root/.docker/config.json)
+    # Create multi-arch manifest
+    RUN docker buildx imagetools create \
+        -t ghcr.io/millstonehq/provider-cloudflare:${VERSION} \
+        -t ghcr.io/millstonehq/provider-cloudflare:latest \
+        ghcr.io/millstonehq/provider-cloudflare:${VERSION}-amd64 \
+        ghcr.io/millstonehq/provider-cloudflare:${VERSION}-arm64
+
+push:
+    # Push multi-arch runtime images and metadata-only xpkg package
+    # Runtime images used by package.yaml controller.image reference
+    # Run with: earthly --push +push --GITHUB_TOKEN=<token>
+    ARG VERSION=v0.1.0
+    ARG GITHUB_USER=millstonehq
+    ARG IMAGE_NAME=ghcr.io/millstonehq/provider-cloudflare:xpkg
+
+    # Step 1: Push arch-specific runtime images (amd64 and arm64)
+    BUILD +push-images --VERSION=$VERSION
+
+    # Step 2: Create multi-arch manifest from pushed arch-specific images
+    BUILD +create-manifest --VERSION=$VERSION --GITHUB_USER=$GITHUB_USER
+
+    # Step 3: Build and push metadata-only xpkg
+    FROM +builder-base
+
+    COPY +package-build/package.xpkg /tmp/provider-cloudflare-package.xpkg
+
+    # Use crossplane CLI to push xpkg
+    USER root
+    RUN apk add docker-cli
+
+    # Authenticate to GHCR
+    RUN --secret GITHUB_TOKEN \
+        echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+
+    # Push xpkg
     RUN crossplane xpkg push -f /tmp/provider-cloudflare-package.xpkg $IMAGE_NAME
 
 package-build:
     FROM +generate
 
-    # Get ARM64 controller image tarball
-    COPY +controller-tarball/controller.tar /tmp/controller.tar
-
-    # Build xpkg package with embedded controller runtime tarball
+    # Build metadata-only xpkg (no embedded runtime)
+    # Runtime image pulled directly from ghcr.io/millstonehq/provider-cloudflare:latest
+    # Kubernetes automatically selects correct arch (amd64/arm64) from multi-arch manifest
     RUN crossplane xpkg build \
         --package-root=package \
-        --embed-runtime-image-tarball=/tmp/controller.tar \
         -o package.xpkg
 
     SAVE ARTIFACT package.xpkg
-
-package-local:
-    ARG IMAGE_NAME=provider-cloudflare:latest
-
-    # Load the xpkg tarball into docker
-    LOCALLY
-    COPY +package-build/package.xpkg /tmp/provider-cloudflare-package.xpkg
-    RUN LOADED_ID=$(docker load -i /tmp/provider-cloudflare-package.xpkg 2>&1 | grep -oP 'Loaded image ID: \K.*') && \
-        docker tag $LOADED_ID $IMAGE_NAME
