@@ -1,12 +1,15 @@
 // Package main provides a terraform-to-tofu wrapper that fixes Cloudflare v5
 // provider compatibility with upjet. The Cloudflare v5 terraform provider's
 // Read function crashes when called with an empty ID, which upjet triggers on
-// new resources during terraform's implicit refresh. This wrapper strips
-// empty-ID resources from tfstate before apply so terraform correctly plans a
-// Create instead of crashing during refresh.
+// new resources during terraform's implicit refresh. This wrapper:
+//
+//  1. Strips empty-ID resources from tfstate before apply so terraform
+//     correctly plans a Create instead of thinking the resource exists.
+//  2. Injects -refresh=false for plain apply (not -refresh-only) to prevent
+//     terraform from calling Read with the now-valid ID during apply's implicit
+//     refresh step. Observe (-refresh-only) is unaffected and handles drift.
 //
 // Install as /usr/local/bin/terraform (before the tofu symlink in PATH).
-// Pair with TF_CLI_ARGS_apply=-refresh=false to prevent Read during apply.
 package main
 
 import (
@@ -19,22 +22,39 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	if isApplyCommand(args) {
+	if isPlainApply(args) {
 		stripEmptyIDResources("terraform.tfstate")
+		// Inject -refresh=false to prevent Read during apply. This is safe
+		// because Observe uses -refresh-only (not plain apply) for drift
+		// detection. Without this, terraform's implicit refresh during apply
+		// would call Read on newly-created resources, and the Cloudflare v5
+		// provider crashes on certain Read calls.
+		args = append(args, "-refresh=false")
 	}
 
 	tofu := "/usr/bin/tofu"
 	syscall.Exec(tofu, append([]string{"tofu"}, args...), os.Environ())
 }
 
-func isApplyCommand(args []string) bool {
+// isPlainApply returns true for "apply" but false for "apply -refresh-only".
+func isPlainApply(args []string) bool {
+	isApply := false
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
+			if arg == "-refresh-only" {
+				return false
+			}
 			continue
 		}
-		return arg == "apply"
+		if !isApply {
+			if arg == "apply" {
+				isApply = true
+			} else {
+				return false
+			}
+		}
 	}
-	return false
+	return isApply
 }
 
 func stripEmptyIDResources(path string) {

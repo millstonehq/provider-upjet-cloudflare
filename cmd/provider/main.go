@@ -41,14 +41,6 @@ func main() {
 
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	// Disable terraform's implicit refresh during apply. The tofu-wrapper
-	// binary (installed as /usr/local/bin/terraform) strips empty-ID resources
-	// from tfstate before delegating to tofu, so terraform correctly plans a
-	// Create. Without -refresh=false, terraform would call Read with the empty
-	// ID and the Cloudflare v5 provider would crash. Drift detection is handled
-	// by Observe (terraform plan WITH refresh), which is unaffected.
-	os.Setenv("TF_CLI_ARGS_apply", "-refresh=false")
-
 	zl := zap.New(zap.UseDevMode(*debug))
 	log := logging.NewLogrLogger(zl.WithName("provider-cloudflare"))
 	if *debug {
