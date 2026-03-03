@@ -119,8 +119,9 @@ func main() {
 		log.Info("Beta feature enabled", "flag", features.EnableBetaManagementPolicies)
 	}
 
-	// Setup all controllers (including ProviderConfig via generated zz_setup.go)
-	kingpin.FatalIfError(controller.Setup(mgr, o), "Cannot setup controllers")
+	// Setup all controllers with observe short-circuit wrapper for Cloudflare v5
+	// compatibility (Cloudflare v5 Read fails with empty IDs on new resources)
+	kingpin.FatalIfError(controller.SetupCustom(mgr, o), "Cannot setup controllers")
 
 	kingpin.FatalIfError(mgr.Start(ctrl.SetupSignalHandler()), "Cannot start controller manager")
 }
