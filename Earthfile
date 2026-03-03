@@ -153,8 +153,8 @@ patched-cloudflare-provider:
 
     # Clone upstream at the exact version we target
     RUN TAG=$(cat /tmp/provider_tag) && \
-        git clone --depth 1 --branch "$TAG" https://github.com/cloudflare/terraform-provider-cloudflare.git /src
-    WORKDIR /src
+        git clone --depth 1 --branch "$TAG" https://github.com/cloudflare/terraform-provider-cloudflare.git /home/nonroot/src
+    WORKDIR /home/nonroot/src
 
     # Apply empty ID guard patch to Read functions
     COPY patches/cloudflare-provider-empty-id-guard.patch .
@@ -164,9 +164,9 @@ patched-cloudflare-provider:
     RUN CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
         -ldflags="-s -w" \
         -trimpath \
-        -o /terraform-provider-cloudflare
+        -o /home/nonroot/terraform-provider-cloudflare
 
-    SAVE ARTIFACT /terraform-provider-cloudflare
+    SAVE ARTIFACT /home/nonroot/terraform-provider-cloudflare
 
 image:
     # Production runtime: tofu-runtime (base-runtime + tofu only, no debug tools)
