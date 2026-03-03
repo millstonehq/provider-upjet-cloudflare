@@ -64,7 +64,7 @@ jobs:
           echo "  metadata:"
           echo "    name: provider-upjet-cloudflare"
           echo "  spec:"
-          echo "    package: ghcr.io/millstonehq/provider-cloudflare:latest"
+          echo "    package: ghcr.io/millstonehq/provider-cloudflare:xpkg"
           echo "  EOF"
 
       - name: Check if commit is from Copybara Export
