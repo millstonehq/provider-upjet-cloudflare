@@ -41,6 +41,7 @@ generate-raw:
     COPY --dir cmd config examples hack /app/providers/provider-upjet-cloudflare/
     COPY --dir internal/clients internal/features /app/providers/provider-upjet-cloudflare/internal/
     COPY --dir internal/controller/providerconfig /app/providers/provider-upjet-cloudflare/internal/controller/
+    COPY internal/controller/observe_wrapper.go internal/controller/setup_custom.go /app/providers/provider-upjet-cloudflare/internal/controller/
     COPY --dir apis/v1alpha1 apis/v1beta1 /app/providers/provider-upjet-cloudflare/apis/
     COPY package/crossplane.yaml /app/providers/provider-upjet-cloudflare/package/crossplane.yaml
     COPY go.mod go.sum /app/providers/provider-upjet-cloudflare/
