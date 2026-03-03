@@ -42,11 +42,21 @@ runs:
         FORCE_COLOR: 1
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        PUSH_FLAG=""
         CACHE_FLAGS="--remote-cache=ghcr.io/millstonehq/cache:provider-upjet-cloudflare --max-remote-cache"
 
-        if [ "${{ inputs.push }}" == "true" ]; then
-          PUSH_FLAG="--push"
+        if [ "${{ inputs.push }}" == "true" ] && [ "${{ inputs.earthly-target }}" == "+push" ]; then
+          # Push requires sequential phases because Earthly defers SAVE IMAGE --push
+          # to end of build, but create-manifest needs images already in registry.
+          # Phase 1: Build and push arch-specific images to GHCR
+          earthly --ci -P --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-images
+          # Phase 2: Create multi-arch manifest from pushed images
+          earthly --ci -P --secret GITHUB_TOKEN $CACHE_FLAGS +create-manifest
+          # Phase 3: Build and push metadata-only xpkg
+          earthly --ci -P --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-xpkg
+        else
+          PUSH_FLAG=""
+          if [ "${{ inputs.push }}" == "true" ]; then
+            PUSH_FLAG="--push"
+          fi
+          earthly --ci -P --secret GITHUB_TOKEN $PUSH_FLAG $CACHE_FLAGS ${{ inputs.earthly-target }}
         fi
-
-        earthly --ci -P --secret GITHUB_TOKEN $PUSH_FLAG $CACHE_FLAGS ${{ inputs.earthly-target }}

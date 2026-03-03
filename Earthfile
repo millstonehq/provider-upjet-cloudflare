@@ -159,70 +159,47 @@ image:
 
 push-images:
     # Build and push multi-arch controller images to GHCR
-    # Run with: earthly --push +push-images
+    # Called as: earthly --push +push-images
+    # SAVE IMAGE --push defers to end of this earthly invocation,
+    # so this MUST be a separate earthly call before +create-manifest.
     ARG VERSION=v0.1.0
-
-    # Build both arch images (SAVE IMAGE --push in +image target handles pushing)
     BUILD --platform=linux/amd64 --platform=linux/arm64 +image --VERSION=$VERSION
 
-    # Create completion marker for dependency chain
-    FROM +builder-base
-    RUN echo "Images pushed at $(date)" > /tmp/push-complete
-    SAVE ARTIFACT /tmp/push-complete push-complete
-
 create-manifest:
-    # Create multi-arch manifest from pushed arch-specific images
-    # Must be called AFTER +push-images has pushed both architectures
+    # Create multi-arch manifest from already-pushed arch-specific images
+    # Called as: earthly +create-manifest (after +push-images completes)
     ARG VERSION=v0.1.0
     ARG GITHUB_USER=millstonehq
     FROM +builder-base
 
-    # Wait for push-images to complete by depending on its artifact
-    COPY +push-images/push-complete /tmp/push-complete
-
     USER root
     RUN apk add docker-cli docker-cli-buildx
 
-    # Authenticate to GHCR
     RUN --secret GITHUB_TOKEN \
         echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
 
-    # Create multi-arch manifest
     RUN docker buildx imagetools create \
         -t ghcr.io/millstonehq/provider-cloudflare:${VERSION} \
         -t ghcr.io/millstonehq/provider-cloudflare:latest \
         ghcr.io/millstonehq/provider-cloudflare:${VERSION}-amd64 \
         ghcr.io/millstonehq/provider-cloudflare:${VERSION}-arm64
 
-push:
-    # Push multi-arch runtime images and metadata-only xpkg package
-    # Runtime images used by package.yaml controller.image reference
-    # Run with: earthly --push +push --GITHUB_TOKEN=<token>
-    ARG VERSION=v0.1.0
+push-xpkg:
+    # Build and push metadata-only xpkg package
+    # Called as: earthly --push +push-xpkg (after +create-manifest)
     ARG GITHUB_USER=millstonehq
     ARG IMAGE_NAME=ghcr.io/millstonehq/provider-cloudflare:xpkg
-
-    # Step 1: Push arch-specific runtime images (amd64 and arm64)
-    BUILD +push-images --VERSION=$VERSION
-
-    # Step 2: Create multi-arch manifest from pushed arch-specific images
-    BUILD +create-manifest --VERSION=$VERSION --GITHUB_USER=$GITHUB_USER
-
-    # Step 3: Build and push metadata-only xpkg
     FROM +builder-base
 
     COPY +package-build/package.xpkg /tmp/provider-cloudflare-package.xpkg
 
-    # Use crossplane CLI to push xpkg
     USER root
     RUN apk add docker-cli
 
-    # Authenticate to GHCR
     RUN --secret GITHUB_TOKEN \
         echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
 
-    # Push xpkg
-    RUN crossplane xpkg push -f /tmp/provider-cloudflare-package.xpkg $IMAGE_NAME
+    RUN --push crossplane xpkg push -f /tmp/provider-cloudflare-package.xpkg $IMAGE_NAME
 
 package-build:
     FROM +generate
