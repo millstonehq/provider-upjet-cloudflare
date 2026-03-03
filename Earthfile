@@ -135,38 +135,17 @@ build:
 
     SAVE ARTIFACT bin/provider AS LOCAL bin/provider
 
-patched-cloudflare-provider:
-    # Build patched Cloudflare terraform provider with empty ID guard fix.
-    # Cloudflare v5 Read crashes on empty IDs — upjet triggers this on new resources.
-    # Version extracted from cloudflare.go (single canonical reference).
-    # Remove this target once the fix is merged upstream.
-    ARG BUILDPLATFORM
-    ARG GOOS=linux
-    ARG GOARCH
-    FROM --platform=$BUILDPLATFORM ghcr.io/millstonehq/go:1.25
-
-    # Extract provider version from Go source (same source of truth as +schema)
-    COPY internal/clients/cloudflare.go /tmp/cloudflare.go
-    RUN PROVIDER_VERSION=$(grep 'TerraformProviderVersion = ' /tmp/cloudflare.go | sed 's/.*"\(.*\)".*/\1/') && \
-        echo "v${PROVIDER_VERSION}" > /tmp/provider_tag && \
-        echo "Building patched cloudflare provider v${PROVIDER_VERSION}"
-
-    # Clone upstream at the exact version we target
-    RUN TAG=$(cat /tmp/provider_tag) && \
-        git clone --depth 1 --branch "$TAG" https://github.com/cloudflare/terraform-provider-cloudflare.git /home/nonroot/src
-    WORKDIR /home/nonroot/src
-
-    # Apply empty ID guard patch to Read functions
-    COPY patches/cloudflare-provider-empty-id-guard.patch .
-    RUN git apply cloudflare-provider-empty-id-guard.patch
-
-    # Build the patched provider binary
+    # Build tofu-wrapper: strips empty-ID resources from tfstate before apply.
+    # Cloudflare v5 Read crashes on empty IDs; this + TF_CLI_ARGS_apply=-refresh=false
+    # ensures terraform plans Create for new resources instead of crashing.
+    # Tiny binary, adds <1s to build.
     RUN CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
         -ldflags="-s -w" \
         -trimpath \
-        -o /home/nonroot/terraform-provider-cloudflare
+        -o bin/tofu-wrapper \
+        cmd/tofu-wrapper/main.go
 
-    SAVE ARTIFACT /home/nonroot/terraform-provider-cloudflare
+    SAVE ARTIFACT bin/tofu-wrapper
 
 image:
     # Production runtime: tofu-runtime (base-runtime + tofu only, no debug tools)
@@ -183,12 +162,11 @@ image:
     # Build the right binary for this platform, but compile on native arch (no QEMU)
     COPY (+build/provider --GOOS=$IMAGE_OS --GOARCH=$IMAGE_ARCH) /usr/local/bin/provider
 
-    # Bake in patched Cloudflare terraform provider (empty ID guard fix).
-    # dev_overrides tells tofu to use this binary instead of downloading from registry.
-    # Removes runtime registry dependency and speeds up reconciliation.
-    COPY (+patched-cloudflare-provider/terraform-provider-cloudflare --GOOS=$IMAGE_OS --GOARCH=$IMAGE_ARCH) /usr/local/share/terraform-plugins/terraform-provider-cloudflare
-    COPY terraformrc /etc/terraform/terraformrc
-    ENV TF_CLI_CONFIG_FILE=/etc/terraform/terraformrc
+    # Install tofu-wrapper as /usr/local/bin/terraform, ahead of the
+    # /usr/bin/terraform→tofu symlink in PATH. Upjet calls "terraform" which
+    # hits our wrapper first; it strips empty-ID resources from tfstate then
+    # execs the real /usr/bin/tofu.
+    COPY (+build/tofu-wrapper --GOOS=$IMAGE_OS --GOARCH=$IMAGE_ARCH) /usr/local/bin/terraform
 
     ENTRYPOINT ["/usr/local/bin/provider"]
 
