@@ -135,6 +135,39 @@ build:
 
     SAVE ARTIFACT bin/provider AS LOCAL bin/provider
 
+patched-cloudflare-provider:
+    # Build patched Cloudflare terraform provider with empty ID guard fix.
+    # Cloudflare v5 Read crashes on empty IDs — upjet triggers this on new resources.
+    # Version extracted from cloudflare.go (single canonical reference).
+    # Remove this target once the fix is merged upstream.
+    ARG BUILDPLATFORM
+    ARG GOOS=linux
+    ARG GOARCH
+    FROM --platform=$BUILDPLATFORM ghcr.io/millstonehq/go:1.25
+
+    # Extract provider version from Go source (same source of truth as +schema)
+    COPY internal/clients/cloudflare.go /tmp/cloudflare.go
+    RUN PROVIDER_VERSION=$(grep 'TerraformProviderVersion = ' /tmp/cloudflare.go | sed 's/.*"\(.*\)".*/\1/') && \
+        echo "v${PROVIDER_VERSION}" > /tmp/provider_tag && \
+        echo "Building patched cloudflare provider v${PROVIDER_VERSION}"
+
+    # Clone upstream at the exact version we target
+    RUN TAG=$(cat /tmp/provider_tag) && \
+        git clone --depth 1 --branch "$TAG" https://github.com/cloudflare/terraform-provider-cloudflare.git /src
+    WORKDIR /src
+
+    # Apply empty ID guard patch to Read functions
+    COPY patches/cloudflare-provider-empty-id-guard.patch .
+    RUN git apply cloudflare-provider-empty-id-guard.patch
+
+    # Build the patched provider binary
+    RUN CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
+        -ldflags="-s -w" \
+        -trimpath \
+        -o /terraform-provider-cloudflare
+
+    SAVE ARTIFACT /terraform-provider-cloudflare
+
 image:
     # Production runtime: tofu-runtime (base-runtime + tofu only, no debug tools)
     # Multi-platform build - TARGETPLATFORM/TARGETARCH are built-in and set by Earthly
@@ -149,6 +182,13 @@ image:
 
     # Build the right binary for this platform, but compile on native arch (no QEMU)
     COPY (+build/provider --GOOS=$IMAGE_OS --GOARCH=$IMAGE_ARCH) /usr/local/bin/provider
+
+    # Bake in patched Cloudflare terraform provider (empty ID guard fix).
+    # dev_overrides tells tofu to use this binary instead of downloading from registry.
+    # Removes runtime registry dependency and speeds up reconciliation.
+    COPY (+patched-cloudflare-provider/terraform-provider-cloudflare --GOOS=$IMAGE_OS --GOARCH=$IMAGE_ARCH) /usr/local/share/terraform-plugins/terraform-provider-cloudflare
+    COPY terraformrc /etc/terraform/terraformrc
+    ENV TF_CLI_CONFIG_FILE=/etc/terraform/terraformrc
 
     ENTRYPOINT ["/usr/local/bin/provider"]
 
