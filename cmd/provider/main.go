@@ -41,6 +41,14 @@ func main() {
 
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
+	// Cloudflare v5 terraform provider bug: Read fails with "missing required
+	// zone_id parameter" when called with an empty ID. Upjet's terraform apply
+	// runs an implicit refresh before applying, which triggers Read on resources
+	// that haven't been created yet (state has "id": ""). Our Observe wrapper
+	// handles drift detection at the Crossplane level, making terraform's
+	// internal refresh redundant. Disable it so Create succeeds on new resources.
+	os.Setenv("TF_CLI_ARGS_apply", "-refresh=false")
+
 	zl := zap.New(zap.UseDevMode(*debug))
 	log := logging.NewLogrLogger(zl.WithName("provider-cloudflare"))
 	if *debug {
