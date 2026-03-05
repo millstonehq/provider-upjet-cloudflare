@@ -28,8 +28,7 @@ func GetProvider() *tjconfig.Provider {
 		tjconfig.WithRootGroup("cloudflare.millstone.tech"),
 		tjconfig.WithFeaturesPackage("internal/features"),
 		tjconfig.WithIncludeList([]string{
-			"cloudflare_dns_record$",
-			"cloudflare_zone$",
+			"cloudflare_.*",
 		}),
 		tjconfig.WithDefaultResourceOptions(
 			func(r *tjconfig.Resource) {
