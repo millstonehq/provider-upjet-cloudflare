@@ -70,6 +70,10 @@ func GetProvider() *tjconfig.Provider {
 			shortGroup: "zerotrust",
 			kind:       "DeviceDefaultProfileLocalDomainFallback",
 		},
+		"cloudflare_snippet": {
+			shortGroup: "snippet",
+			kind:       "Snippet",
+		},
 	}
 
 	for name, fix := range reservedWordFixes {
