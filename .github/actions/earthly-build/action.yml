@@ -96,19 +96,39 @@ runs:
       run: |
         CACHE_FLAGS="--remote-cache=ghcr.io/millstonehq/cache:provider-upjet-cloudflare --max-remote-cache"
 
+        # NO -P, AND PUTTING IT BACK BREAKS EVERY BUILD ON THE SELF-HOSTED DAEMON.
+        #
+        # -P (--allow-privileged) makes the CLIENT request the security.insecure entitlement at
+        # solve time, whether or not any target uses it. buildkitd denies entitlements it is not
+        # explicitly configured to allow, so the build dies before it starts:
+        #
+        #   failed to solve: granting entitlement security.insecure is not allowed by
+        #     build daemon configuration
+        #   Help: earth --allow-privileged (earth -P) flag is required
+        #
+        # The help text names the flag that IS already present, which is why this was read as a
+        # missing-flag bug rather than a surplus-flag one. CI - Provider Cloudflare failed on main
+        # and on every branch, unbroken from 2026-08-17 -- the day CI moved onto self-hosted
+        # buildkitd -- until 2026-08-24.
+        #
+        # THIS PROVIDER NEVER NEEDED IT. providers/provider-upjet-cloudflare/Earthfile contains
+        # zero WITH DOCKER, zero RUN --privileged and zero LOCALLY -- the three things that
+        # require the entitlement. Granting security.insecure on a shared, persistent builder to
+        # satisfy a flag nothing uses would hand every build root on the daemon for nothing.
+
         if [ "${{ inputs.push }}" == "true" ] && [ "${{ inputs.earthly-target }}" == "+push" ]; then
           # Push requires sequential phases because Earthly defers SAVE IMAGE --push
           # to end of build, but create-manifest needs images already in registry.
           # Phase 1: Build and push arch-specific images to GHCR
-          earthly --ci -P --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-images
+          earthly --ci --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-images
           # Phase 2: Create multi-arch manifest from pushed images
-          earthly --ci -P --secret GITHUB_TOKEN $CACHE_FLAGS +create-manifest
+          earthly --ci --secret GITHUB_TOKEN $CACHE_FLAGS +create-manifest
           # Phase 3: Build and push metadata-only xpkg
-          earthly --ci -P --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-xpkg
+          earthly --ci --secret GITHUB_TOKEN --push $CACHE_FLAGS +push-xpkg
         else
           PUSH_FLAG=""
           if [ "${{ inputs.push }}" == "true" ]; then
             PUSH_FLAG="--push"
           fi
-          earthly --ci -P --secret GITHUB_TOKEN $PUSH_FLAG $CACHE_FLAGS ${{ inputs.earthly-target }}
+          earthly --ci --secret GITHUB_TOKEN $PUSH_FLAG $CACHE_FLAGS ${{ inputs.earthly-target }}
         fi
