@@ -5,10 +5,10 @@ PROJECT millstonehq/mill
 # Self-contained build pipeline for the Cloudflare Crossplane provider
 
 builder-base:
-    ARG BUILDPLATFORM
+    ARG NATIVEPLATFORM
     # Use pre-built crossplane:builder with Go, OpenTofu, make, and pre-compiled tools
     # (goimports, controller-gen, angryjet, crossplane CLI)
-    FROM --platform=$BUILDPLATFORM ghcr.io/millstonehq/crossplane:builder
+    FROM --platform=$NATIVEPLATFORM ghcr.io/millstonehq/crossplane:builder
 
     WORKDIR /app
 
@@ -28,12 +28,12 @@ schema:
     #
     #   .buildkit_qemu_emulator: Invalid ELF image for this architecture
     #
-    # +builder-base, +deps and +build all pin $BUILDPLATFORM already and cross-compile with
+    # +builder-base, +deps and +build all pin $NATIVEPLATFORM too and cross-compile with
     # GOOS/GOARCH; +image only COPYs. This target was the sole exception, which is why the provider
     # has never actually published arm64 -- the registry carries v0.1.0-amd64 and no arm64 tag, and
     # the chart pins runtimeImage to :latest-amd64 to work around it.
-    ARG BUILDPLATFORM
-    FROM --platform=$BUILDPLATFORM ghcr.io/millstonehq/tofu:builder
+    ARG NATIVEPLATFORM
+    FROM --platform=$NATIVEPLATFORM ghcr.io/millstonehq/tofu:builder
 
     # Copy source to extract version (single source of truth)
     COPY internal/clients/cloudflare.go /tmp/cloudflare.go
@@ -133,10 +133,10 @@ test-all:
 
 build:
     # Build on native platform (no QEMU) with cross-compilation
-    ARG BUILDPLATFORM
+    ARG NATIVEPLATFORM
     ARG GOOS=linux
     ARG GOARCH
-    FROM --platform=$BUILDPLATFORM +generate
+    FROM --platform=$NATIVEPLATFORM +generate
 
     # Build the provider binary with optimizations
     # -ldflags="-s -w" strips debug info and symbol table (saves ~15MB)
