@@ -19,7 +19,21 @@ deps:
     RUN go mod download
 
 schema:
-    FROM ghcr.io/millstonehq/tofu:builder
+    # NATIVE PLATFORM, AND THIS WAS THE ONE TARGET IN THE CHAIN THAT DID NOT PIN IT.
+    #
+    # schema.json is JSON -- it does not differ by architecture. Without this pin Earthly builds
+    # a SECOND copy of this target for the foreign platform whenever +push-images asks for both,
+    # and that copy has to EXECUTE an amd64 `tofu init` on an arm64 builder. binfmt_misc is absent
+    # from the Talos kernel on these nodes, so it dies as:
+    #
+    #   .buildkit_qemu_emulator: Invalid ELF image for this architecture
+    #
+    # +builder-base, +deps and +build all pin $BUILDPLATFORM already and cross-compile with
+    # GOOS/GOARCH; +image only COPYs. This target was the sole exception, which is why the provider
+    # has never actually published arm64 -- the registry carries v0.1.0-amd64 and no arm64 tag, and
+    # the chart pins runtimeImage to :latest-amd64 to work around it.
+    ARG BUILDPLATFORM
+    FROM --platform=$BUILDPLATFORM ghcr.io/millstonehq/tofu:builder
 
     # Copy source to extract version (single source of truth)
     COPY internal/clients/cloudflare.go /tmp/cloudflare.go
