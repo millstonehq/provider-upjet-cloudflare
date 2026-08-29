@@ -49,3 +49,9 @@ vendor/
 *.tgz
 charts/**/charts/
 charts/**/*.lock
+
+# `go build ./cmd/tofu-wrapper/` drops the binary here rather than in bin/, which the
+# Earthfile SAVE ARTIFACT path already covers. Caught it staged once; ignore it so a
+# stray local build cannot reach a commit.
+/tofu-wrapper
+/provider

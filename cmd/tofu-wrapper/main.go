@@ -3,11 +3,16 @@
 // Read function crashes when called with an empty ID, which upjet triggers on
 // new resources during terraform's implicit refresh. This wrapper:
 //
-//  1. Strips empty-ID resources from tfstate before apply so terraform
-//     correctly plans a Create instead of thinking the resource exists.
-//  2. Injects -refresh=false for plain apply (not -refresh-only) to prevent
+//  1. Strips empty-ID resources from tfstate before ANY apply, including
+//     `apply -refresh-only`, which is what upjet runs for Observe. A resource with
+//     an empty ID does not exist yet, so removing it from state means terraform
+//     never calls Read on it. This covers every resource without a list, which is
+//     what a provider family needs -- see internal/controller/setup_custom.go for
+//     the per-resource Go decorator this replaces.
+//  2. Injects -refresh=false for plain apply ONLY (not -refresh-only) to prevent
 //     terraform from calling Read with the now-valid ID during apply's implicit
-//     refresh step. Observe (-refresh-only) is unaffected and handles drift.
+//     refresh step. On -refresh-only it would disable the refresh the command
+//     exists to perform, and Observe would stop detecting drift.
 //
 // Install as /usr/local/bin/terraform (before the tofu symlink in PATH).
 package main
@@ -22,13 +27,28 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	if isPlainApply(args) {
+	// STRIPPING RUNS ON *ANY* apply, INCLUDING -refresh-only, AND THAT IS THE POINT.
+	//
+	// These two behaviours used to sit behind one predicate, so Observe -- which upjet
+	// runs as `apply -refresh-only` -- got neither. That gap was covered instead by a Go
+	// decorator in internal/controller/setup_custom.go which short-circuits Observe per
+	// resource, naming each one by hand. Readable for two resources; impossible for the
+	// 211 a provider family publishes. So the protection moves here: this wrapper already
+	// intercepts every terraform invocation the provider makes, so it covers every
+	// resource without a list to maintain.
+	//
+	// Stripping is correct on the refresh path for the same reason it is correct on
+	// apply. A resource with an empty ID does not exist yet; removing it from state means
+	// terraform never calls Read on it. Cloudflare v5's Read crashes on an empty ID, and a
+	// resource absent from state is never read -- the same outcome the Go decorator
+	// produces by returning ResourceExists: false.
+	if isApply(args) {
 		stripEmptyIDResources("terraform.tfstate")
-		// Inject -refresh=false to prevent Read during apply. This is safe
-		// because Observe uses -refresh-only (not plain apply) for drift
-		// detection. Without this, terraform's implicit refresh during apply
-		// would call Read on newly-created resources, and the Cloudflare v5
-		// provider crashes on certain Read calls.
+	}
+
+	// -refresh=false STAYS apply-ONLY. On -refresh-only it would disable the very refresh
+	// the command exists to perform, and Observe would stop detecting drift.
+	if isPlainApply(args) {
 		args = append(args, "-refresh=false")
 	}
 
@@ -37,6 +57,19 @@ func main() {
 }
 
 // isPlainApply returns true for "apply" but false for "apply -refresh-only".
+// isApply reports whether the invocation is any form of `apply`, including
+// `apply -refresh-only`. Contrast isPlainApply, which deliberately excludes the
+// refresh-only form.
+func isApply(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "apply"
+	}
+	return false
+}
+
 func isPlainApply(args []string) bool {
 	isApply := false
 	for _, arg := range args {
