@@ -32,11 +32,11 @@ func GetProvider() *tjconfig.Provider {
 		//
 		// "cloudflare_.*" matches every resource in the Cloudflare Terraform provider, so this
 		// generated 211 CRDs to manage 12 objects -- 11 dns.Record and 1 zone.Zone, the only two
-		// kinds ever configured below. Measured on mgmt-prod 2026-08-28: all 211 enumerated, 209
+		// kinds ever configured below. Measured on a live cluster 2026-08-28: all 211 enumerated, 209
 		// with zero instances.
 		//
 		// WHAT THE OTHER 209 COST. Each apiserver rebuilds an aggregated OpenAPI spec over every
-		// CRD. On mgmt-prod that loop stopped converging on one node: 43 "slow openapi aggregation"
+		// CRD. On one such cluster that loop stopped converging on a node: 43 "slow openapi aggregation"
 		// entries per 10 minutes at 1.5-5s each against 2 on a healthy peer, 1857m of apiserver CPU
 		// against ~450m, and request handlers timing out on the lease endpoints. kube-scheduler lost
 		// its lease and exited every ~4 minutes, and flannel could not watch Nodes through KubePrism,
